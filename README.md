@@ -3,7 +3,7 @@ This singleton Class shall serve an easy to use and intuitive way to work with F
 
 ----
 
-**somewhere:**
+**somewhere before using the class:**
 ```php
 define('FLOW_FACT_BASE_DIR', './data/flowfact'); // contains the openimmoXXXX.zip files
 ```
