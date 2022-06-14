@@ -6,6 +6,7 @@ Shall serve an easy to use and intuitive way to work with FlowFact xml export fi
 define('FLOW_FACT_BASE_DIR', './data/flowfact'); // contains the openimmoXXXX.zip files
 ```
 
+**where ever you need the flowfact data:**
 ```php
 <?php
 /*
