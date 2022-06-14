@@ -1,5 +1,7 @@
 # flowfact-xml
-Shall serve an easy to use and intuitive way to work with FlowFact xml export files
+This singleton Class shall serve an easy to use and intuitive way to work with FlowFact xml export files (not the API!)
+
+----
 
 **somewhere:**
 ```php
@@ -49,6 +51,12 @@ d(
 );
 ?>
 ```
+
+**for a detail:**
+```php
+$item = FlowFact::getInstance(false)->getItem($detail_id);
+```
+Note the ```getInstance(false)``` **(false)**: This will prevent the class from indexing all files in the dir and instead try to use the desired data file directly 
 
 ### TODO
   - documentation
