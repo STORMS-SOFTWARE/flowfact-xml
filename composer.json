@@ -1,0 +1,24 @@
+{
+  "name": "STORMS-SOFTWARE/flowfact-xml",
+  "type": "library",
+  "description": "Shall serve an easy to use and intuitive way to work with FlowFact xml export files",
+  "homepage": "https://github.com/STORMS-SOFTWARE/flowfact-xml",
+  "license": "GPL",
+  "authors": [
+    {
+      "name": "Serjoscha Bassauer",
+      "email": "",
+      "role": "Developer"
+    }
+  ],
+  "require": {
+    "php": ">=8.0",
+    "ext-json": "*",
+    "ext-simplexml": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "storms\\flowfact\\": "src"
+    }
+  }
+}
