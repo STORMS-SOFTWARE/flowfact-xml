@@ -1,6 +1,15 @@
 # flowfact-xml
 This singleton Class shall serve an easy to use and intuitive way to work with FlowFact xml export files (not the API!)
 
+**Requirements:**
+```json
+"require": {
+    "php": ">=8.0",
+    "ext-json": "*",
+    "ext-simplexml": "*"
+},
+```
+
 ----
 
 **somewhere before using the class:**
