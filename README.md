@@ -1,6 +1,11 @@
 # flowfact-xml
 Shall serve an easy to use and intuitive way to work with FlowFact xml export files
 
+**somewhere:**
+```php
+define('FLOW_FACT_BASE_DIR', './data/flowfact'); // contains the openimmoXXXX.zip files
+```
+
 ```php
 <?php
 /*
