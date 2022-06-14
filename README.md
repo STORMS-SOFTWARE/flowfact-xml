@@ -10,6 +10,9 @@ This singleton Class shall serve an easy to use and intuitive way to work with F
 },
 ```
 
+**Third party deps:**
+None
+
 ----
 
 **somewhere before using the class:**
