@@ -22,10 +22,6 @@ $predefined_filter__KAUF = \storms\flowfact\FlowFact::getInstance()
     ->getItems();
 d($predefined_filter__KAUF);
 
-//
-//\storms\flowfact\FlowFact::getInstance()->clearFilters(); // !!! without this $predefined_filter__MIETE will also use the filter defined for $predefined_filter__KAUF
-//
-
 $predefined_filter__MIETE = \storms\flowfact\FlowFact::getInstance()
     ->addFilter(new \storms\flowfact\filters\FlowFactFilterMiete())
     ->getItems();
