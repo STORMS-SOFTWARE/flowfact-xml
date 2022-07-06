@@ -17,15 +17,15 @@ None
 
 **somewhere before using the class:**
 ```php
-FlowFact::$BASE_DIR = './data/flowfact'; // contains the openimmoXXXX.zip files
+\storms\flowfact\FlowFact::$BASE_DIR = './data/flowfact'; // contains the openimmoXXXX.zip files
 ```
 
 **prepare / update your data base the class is working with:**
 You may put this into a file that is called by a cronjob (its not recommended to do this every time the script that outputs immo-data runs):
 ```php
 // prepare-flowfact.php:
-if(!FlowFact::getInstance()->isUpToDate())
-    FlowFact::getInstance()->updateDataStorage();
+if(!\storms\flowfact\FlowFact::getInstance()->isUpToDate())
+    \storms\flowfact\FlowFact::getInstance()->updateDataStorage();
 ```
 This will make sure that all archives within the ```FlowFact::$BASE_DIR``` are extracted and deleted immo objects are removed from the data base. The FlowFact class can now work with the data using the ```getItems()``` (...) method.
 
@@ -34,7 +34,7 @@ This will make sure that all archives within the ```FlowFact::$BASE_DIR``` are e
 **setting up textmappings for field labels as well as for field values:**
 ```php
 // Example Mapping
-FlowFact::getInstance()->setTextsMap([
+\storms\flowfact\FlowFact::getInstance()->setTextsMap([
     'DOPPELHAUSHAELFTE' => 'Doppelhaushälfte',
     'kaution_text'  => 'Kaution',
     'courtage_hinweis' => 'Courtage',
@@ -98,7 +98,7 @@ d(
 
 **for outputting a immo-object detail/single item:**
 ```php
-$item = FlowFact::getInstance(false)->getItem($detail_id);
+$item = \storms\flowfact\FlowFact::getInstance(false)->getItem($detail_id);
 ```
 Note the ```getInstance(false)``` **(false)**: This will prevent the class from indexing all files in the dir and instead try to use the desired data file directly 
 
