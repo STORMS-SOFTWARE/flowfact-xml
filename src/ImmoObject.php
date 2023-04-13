@@ -6,8 +6,8 @@
  * This is a wrapper class around a SimpleXMLElement object.
  * It allows us to create custom quick access methods that return deeply nested data from the flowfact xml.
  * It uses the magic php methods in order to delegate xml access tries to the previously passed SimpleXMLElement object.
- *
- * TODO everything in this class runs everytime the method is called - this ain't good.
+ *a
+ * TODO mostly everything in this class runs everytime anew as the getter (for example getPreise) is called - this ain't good for performance. We should implement some cache.
  */
 
 namespace storms\flowfact;
@@ -15,9 +15,31 @@ namespace storms\flowfact;
 use STORMS\webframe\Core\Traits\UtilityMethods;
 use STORMS\webframe\Core\WebFrame;
 
+use storms\flowfact\traits\ValueFormatters;
+
 class ImmoObject {
 
+    use ValueFormatters;
+
     private ?\SimpleXMLElement $immoObjectSimpleXMLElement = null;
+
+    private $formatters = [
+        // >*< can be used as wildcard - position of the asterisk is not important in any way - as soon as the asterisk is found, the formatter is applied. So you can put it at the beginning, in the middle or at the end of the field name.
+        // *NYI:* >!< = don't format elems which are keyed like this *:NYI*
+        // note that the order of the definition defines the order of the formatters being applied
+        [
+            'fields' => ['*preis', '*kosten', '*miete', 'kaution_text'],
+            'formatter' => 'formatPrice' /** @see ValueFormatters::formatPrice() */
+        ],
+        [
+            'fields' => ['*flaeche', '*anzahl'],
+            'formatter' => 'formatTrimmed' /** @see ValueFormatters::formatTrimmed() */
+        ],
+        [
+            'fields' => ['*flaeche'],
+            'formatter' => 'formatSqm' /** @see ValueFormatters::formatSqm() */
+        ],
+    ];
 
     public function __construct(\SimpleXMLElement $simpleXMLElement) {
         $this->immoObjectSimpleXMLElement = $simpleXMLElement;
@@ -102,12 +124,22 @@ class ImmoObject {
         return $loc;
     }
 
+    public function getPreis() {
+        if($this->isMiete())
+            return $this->getKaltmiete();
+        elseif($this->isKauf())
+            return $this->getKaufpreis();
+        return null;
+    }
+    public function getKaufpreis() : string|null {
+        return $this->getPreise()['kaufpreis']['value'] ?? null;
+    }
+    public function getKaltmiete() : string|null {
+        return $this->getPreise()['kaltmiete']['value'] ?? null;
+    }
     public function getPreise($without = []) : array {
-        return array_map(function($elem) { // TODO this won't process multi dim arrays (like for example @ preise->stp_garage->stellplatzmiete)
-            if(is_numeric($elem['value'] ?? false))
-                $elem['value'] = $elem['value'] . ' €';
-            return $elem;
-        }, $this->convertData($this->immoObjectSimpleXMLElement->preise->children(), $without));
+        //d($this->convertData($this->immoObjectSimpleXMLElement->preise->children()));
+        return $this->convertData($this->immoObjectSimpleXMLElement->preise->children(), $without);
     }
 
     public function getAusstattung($without = []) : array {
@@ -115,7 +147,11 @@ class ImmoObject {
     }
 
     /**
-     * TODO refactor to a more speaking name ...
+     * General method for converting and formatting data-values by their type and/or defined formatters
+     *
+     * NOTE:
+     *  - this method does NOT modify the passed data - it returns a processed copy of it
+     *  - this method needs to be called specially for the (sub) data you want to convert (typically within the methods of this class) - this method does NOT automatically convert all data passed to the class for performance reasons
      * @param $without array with KEYS to exclude from the result
      */
     private function convertData($data, array $without = []) : array {
@@ -134,16 +170,24 @@ class ImmoObject {
                 'label' => FlowFact::getInstance()->mapString($k),
             ];
 
+            // recursion!
             if(!is_array($data) && !empty($attribs = (array)$v->attributes())) { // for xml elements that don't have a direct value but only attributes: pull the attributes out of the xml and store them as simple key/value array
                 $tmp[$k]['attributes'] = $this->convertData($attribs['@attributes']);
             }
-            else {
-                $tmp[$k]['value'] =
-                    // convert "true" "false" (strings) from the xml to real booleans & just use the plain string values if it's not a bool
-                    in_array((string)$v, [FlowFact::BOOL_TRUE, FlowFact::BOOL_FALSE])
-                        ? (string)$v === FlowFact::BOOL_TRUE
-                        : (string)$v;
+
+            $val = (string)$v ?? null;
+            if(in_array($val, [FlowFact::BOOL_TRUE, FlowFact::BOOL_FALSE])) { // TODO we could actually also create a formatter for this...
+                // convert "true" "false" (strings) from the xml to real booleans & just use the plain string values if it's not a bool
+                $tmp[$k]['value'] = ($val === FlowFact::BOOL_TRUE);
             }
+            elseif($this->hasFormattersFor($k)) {
+                $tmp[$k]['_value_orig'] = $val;
+                foreach($this->findFormattersFor($k) as $formatterName)
+                    $val = $this->$formatterName($val);
+                $tmp[$k]['value'] = $val;
+            }
+            else
+                $tmp[$k]['value'] = $val;
         }
         return $tmp;
     }
@@ -161,26 +205,64 @@ class ImmoObject {
                 $elem = FlowFact::getInstance()->mapString($elem);
             });
             $tmp[$cat_key]['detail'] = $tmp_inner;
+            foreach($tmp_inner as $k => $v) {
+                $tmp[$cat_key]['detail'][] = [
+                    'key' => $k,
+                    'value' => $v
+                ];
+            }
+            //$tmp[$cat_key]['detail']['foo'] = $this->convertData($tmp_inner); // same as the loop above???? TEST THIS!!
+        }
+        return $tmp;
+    }
+
+    public function getKategorienFormatted () {
+        $tmp = [];
+        foreach($this->getKategorien() as $cat) {
+            $l1 = $cat['label'];
+            $l2 = $cat['detail'][0]['value'];
+            $tmp[] = implode(' / ', [$l1, $l2]);
+        }
+        return $tmp;
+    }
+
+    /*
+     * TODO not sure if this can only be one or multiple...
+     */
+    public function getObjektarten() {
+        $tmp = [];
+        foreach($this->getKategorien() as $cat) {
+            $key = array_keys($cat['detail'])[0];
+            $tmp[] = $cat['detail'][$key];
         }
         return $tmp;
     }
 
     public function getTitelbild(?string $default = null) : string {
-        return $this->getImagesGrouped()['TITELBILD'][0]['path'] ?? $default;
+        return $this->getImages(grouped : true)['TITELBILD'][0]['path'] ?? $default;
     }
     public function hasTitelbild() : bool {
-        return (bool)($this->getImagesGrouped()['TITELBILD'][0] ?? null);
+        return (bool)($this->getImages(grouped : true)['TITELBILD'][0] ?? null);
     }
 
-    public function getImagesGrouped () : array {
+    public function getImages ($grouped = true) : array {
         $tmp = [];
         foreach ($this->immoObjectSimpleXMLElement->anhaenge->children() as $anhang) {
             $aAnhang = (array)$anhang;
             $attributes = $aAnhang['@attributes'];
-            $tmp[$attributes['gruppe']][] = [
-                'path' => sprintf('%s/%s/%s', ltrim(FlowFact::$EXTRACT_DIR, '.'), $this->getId(), (string)$anhang->daten->pfad),
+            $data = [
+                'path' => sprintf(
+                    '%s/%s/%s',
+                    preg_replace('/(\/?\.\.?\/)/', '' , FlowFact::$EXTRACT_DIR), // remove all ./ ; ../ ; /../ ; /./ ; etc.
+                    $this->getId(),
+                    (string)$anhang->daten->pfad
+                ),
                 'title' => (string)$anhang->anhangtitel ?? null,
             ];
+            if($grouped)
+                $tmp[$attributes['gruppe']][] = $data;
+            else
+                $tmp[] = $data;
         }
         return $tmp;
     }
@@ -202,12 +284,97 @@ class ImmoObject {
         return array_map([FlowFact::getInstance(), 'mapString'], array_keys(((array)$this->immoObjectSimpleXMLElement->ausstattung->heizungsart)['@attributes']??[]));
     }
 
+    public function getFlaeche(string $key, $default = null) {
+        return $this->getFlaechen()[$key]['value'] ?? $default;
+    }
+    private $flaechen_cache = null;
+    public function getFlaechen(/*$without = []*/) {
+        //return $this->convertData($this->immoObjectSimpleXMLElement->flaechen->children(), $without);
+
+        // TODO implement parameter >$without< if needed
+        if($this->flaechen_cache === null)
+            $this->flaechen_cache = $this->convertData($this->immoObjectSimpleXMLElement->flaechen->children());
+        return $this->flaechen_cache;
+    }
+
+    public function getAnzahlBadezimmer () : int {
+        return (int)$this->getFlaeche('anzahl_badezimmer');
+    }
+    public function getAnzahlSchlafzimmer () : int {
+        return (int)$this->getFlaeche('anzahl_schlafzimmer');
+    }
+    public function getAnzahlZimmer () : int {
+        return (int)$this->getFlaeche('anzahl_zimmer');
+    }
+    public function getAnzahlStellplaetze () : int {
+        return (int)$this->getFlaeche('anzahl_stellplaetze');
+    }
+    public function getAnzahlTerrassen () : int {
+        return (int)$this->getFlaeche('anzahl_terrassen');
+    }
+
     public function getNextImmo() : ?ImmoObject {
         return FlowFact::getInstance()->getNextOf($this);
     }
 
     public function getPrevImmo() : ?ImmoObject {
         return FlowFact::getInstance()->getPrevOf($this);
+    }
+
+    private $unformatted_fields = []; // at the moment ONLY for debugging purposes
+    private function hasFormattersFor(string $key) : bool {
+        $hasFormatters = $this->findFormattersFor($key) !== null;
+        if(!$hasFormatters && !in_array($key, $this->unformatted_fields))
+            $this->unformatted_fields[] = $key;
+        return $hasFormatters;
+    }
+
+    private $formatter_cache = []; // store for the findFormattersFor method to speed up finding formatters
+    private function findFormattersFor(string $key, $max = -1) : null|array {
+        $formatters = [];
+        if(array_key_exists($key, $this->formatter_cache))
+            return $this->formatter_cache[$key];
+
+        foreach($this->formatters as $formatterData) {
+            foreach($formatterData['fields'] as $field_info) {
+                if(str_contains($field_info, '*')) { // is wildcard match?
+                    if(str_contains($key, str_replace('*', '', $field_info))) {
+                        $formatters[] = $formatter = $formatterData['formatter'];
+                        $this->formatter_cache[$key][] = $formatter;
+                    }
+                }
+                elseif(str_contains($field_info, '!') !== false) { // blacklist match (force field to be ignored for formatting)
+                    // NYI
+                }
+                elseif($key === $field_info) { // precise match
+                    $formatters[] = $formatter = $formatterData['formatter']; // TODO duplicate code ... refactor
+                    $this->formatter_cache[$key][] = $formatter;
+                }
+                if(count($formatters) === $max)
+                    return $formatters;
+            }
+        }
+        return empty($formatters) ? null : $formatters;
+    }
+
+    /**
+     * Method currently exists only for debugging reasons
+     *
+     * Allows us to get an information on which fields have been sent through any formatter
+     * @return array
+     */
+    public function getFormatterCache() {
+        return $this->formatter_cache;
+    }
+
+    /**
+     * Like getFormatterCache() also for debugging purposes
+     *
+     * Allows us to get an information on which fields have NOT been formatted
+     * @return array
+     */
+    public function getUnformattedFields() {
+        return $this->unformatted_fields;
     }
 
 }
