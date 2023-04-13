@@ -51,7 +51,7 @@ class FlowFact {
         if(self::$BASE_DIR === null)
             throw new \Exception('Please set the FlowFact base dir somewhere before using this class. Do it like so FlowFact::$BASE_DIR = "<path>";');
         if(self::$EXTRACT_DIR === null)
-            self::$EXTRACT_DIR = self::$BASE_DIR . "/extracted";
+            self::$EXTRACT_DIR = self::$BASE_DIR . '/extracted';
 
         if(self::$AUTO_UPDATE)
             $this->updateDataStorage();
@@ -82,30 +82,41 @@ class FlowFact {
 
         foreach($zip_files as $file) {
 
+            echo "Zip File currently processing: <b>$file</b> <br>";
+
             $extr_tar_dir = basename($file, '.zip');
 
             $zip = new \ZipArchive;
             if ($zip->open($file)) {
-                if(is_dir(self::$EXTRACT_DIR . "/$extr_tar_dir")) // skip extraction if tar dir already exists
+                if(is_dir(self::$EXTRACT_DIR . "/$extr_tar_dir") && !_isDev()) { // skip extraction if tar dir already exists
+                    echo 'Dir <b>'.self::$EXTRACT_DIR . "/$extr_tar_dir" . '</b> already exists - stopping to process and going to next iteration  <br>';
                     continue;
-                $zip->extractTo(self::$EXTRACT_DIR . "/$extr_tar_dir");
+                }
+                $extractionStatus = $zip->extractTo(self::$EXTRACT_DIR . "/$extr_tar_dir");
+                echo '<b>Extracting</b> archive to: <b>' . self::$EXTRACT_DIR . "/$extr_tar_dir" . '</b> => <b>Success:</b> ' .($extractionStatus ? 'YES' : 'NO') . '<br>';
                 $zip->close();
 
                 if(!_isDev()) // because in dev envs we are normally testing -> keep the zip archives here instead of deleting them
                     unlink($file);
+                else
+                    echo 'Keeping original archive <b>('.basename($file).')</b> because we are in a dev env. <br/>';
             }
 
             // skip archives that do not have the openimmo.xml file
             if(!is_file(self::$EXTRACT_DIR . "/$extr_tar_dir/openimmo.xml")) {
                 rename(self::$EXTRACT_DIR . "/$extr_tar_dir", self::$EXTRACT_DIR . "/_BROKEN__$extr_tar_dir");
+                echo "The archive <b>$zip</b> does not contain an <b>openimmo.xml</b> file => SKIPPING this file! <br/>";
                 continue;
             }
 
             $xml = simplexml_load_file(self::$EXTRACT_DIR . "/$extr_tar_dir/openimmo.xml");
             $immo_object = new ImmoObject($xml->anbieter->immobilie);
 
+            echo "OBJECT ID: <u><b>[{$immo_object->getId()}]</b></u> <br/>";
+
             // 1. delete previous object dirs that are named by the same id as the one we are currently trying to copy over (we need this for update & delete action)
             if(is_dir(self::$EXTRACT_DIR . "/{$immo_object->getId()}")) {
+                echo 'Dir ' . self::$EXTRACT_DIR . "/{$immo_object->getId()}" . ' already exists => <b>DELETING IT</b> - so this is an <b>UPDATE</b> and old data will be overwritten with new <br>';
                 if (PHP_OS === 'Windows')
                     exec(sprintf("rd /s /q %s", escapeshellarg(self::$EXTRACT_DIR . "/{$immo_object->getId()}"))); // 'exec' because rmdir can only delete empty dirs
                 else
@@ -113,8 +124,8 @@ class FlowFact {
             }
 
             $is_delete_action = ((string)$immo_object->verwaltung_techn->aktion->aktionart) === 'DELETE';
-
             if($is_delete_action) {
+                echo 'The openimmo.xml file of the archive <b>('.basename($file).')</b> tells us that this object shall be removed => DELETING extracted dir. <br/>';
                 // at this point a (possibly) previously created immo-object dir is already removed - now lets just remove the fresh extracted immo-object dir (before it is even renamed) (because we don't need it because this is a delete action)
                 if (PHP_OS === 'Windows')
                     exec(sprintf("rd /s /q %s", escapeshellarg(self::$EXTRACT_DIR . "/$extr_tar_dir"))); // 'exec' because rmdir can only delete empty dirs
@@ -126,8 +137,15 @@ class FlowFact {
             $existing_ids[] = $immo_object->getId();
 
             // 2. rename the fresh extraction/extracted dir to be named by the id of the immo-object
-            rename(self::$EXTRACT_DIR . "/$extr_tar_dir", self::$EXTRACT_DIR . "/{$immo_object->getId()}");
+            $renameStatus = rename(self::$EXTRACT_DIR . "/$extr_tar_dir", self::$EXTRACT_DIR . "/{$immo_object->getId()}");
+            echo '<b>Renaming</b> ' . self::$EXTRACT_DIR . "/$extr_tar_dir" . ' to ' . self::$EXTRACT_DIR . "/{$immo_object->getId()} => <b>Success:</b> " .($renameStatus ? 'YES' : 'NO') . '<br>';
+
+            echo '<hr/>';
         }
+
+        $existing_ids = array_unique($existing_ids);
+
+        echo 'Unique Immo Objects found: <pre>' . print_r($existing_ids, true) . '</pre>Amount: ' . count($existing_ids);
 
         file_put_contents(self::$BASE_DIR . "/objectId2xmlDatafileUri.json", json_encode($existing_ids));
 
